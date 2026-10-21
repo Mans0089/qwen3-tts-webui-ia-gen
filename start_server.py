@@ -1,0 +1,167 @@
+#!/usr/bin/env python3
+"""Web UI Server Launcher.
+
+Start the FastAPI server for voice cloning functionality.
+"""
+
+import argparse
+import itertools
+import json
+import logging
+import os
+import sys
+import threading
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+import uvicorn
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format="[%(levelname)s]: %(message)s",
+)
+
+# Add src to path
+src_path = Path(__file__).parent / "src"
+sys.path.insert(0, str(src_path))
+
+
+class LoadingSpinner:
+    """A terminal loading spinner that shows while the model is loading."""
+
+    def __init__(self, port: int) -> None:
+        """Initialize the loading spinner.
+
+        Args:
+            port: The port number to check for server health.
+
+        """
+        self.port = port
+        self.spinning = True
+        self.spinner_chars = itertools.cycle(
+            ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"],
+        )
+        self.thread: threading.Thread | None = None
+        self.model_loaded = False
+
+    def _check_health(self) -> bool:
+        """Check if the server is healthy and model is loaded."""
+        try:
+            url = f"http://localhost:{self.port}/health"
+            req = urllib.request.Request(url, method="GET")  # noqa: S310
+            with urllib.request.urlopen(req, timeout=2) as response:  # noqa: S310
+                data = json.loads(response.read().decode())
+                return data.get("voice_cloner_loaded", False)
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError):
+            return False
+
+    def _spin(self) -> None:
+        """Run the spinner animation."""
+        start_time = time.time()
+        while self.spinning:
+            elapsed = time.time() - start_time
+            mins, secs = divmod(int(elapsed), 60)
+            time_str = f"{mins:02d}:{secs:02d}"
+
+            char = next(self.spinner_chars)
+            status = f"\r{char} Loading model... ({time_str}) "
+            sys.stdout.write(status)
+            sys.stdout.flush()
+
+            # Check health every iteration
+            if self._check_health():
+                self.model_loaded = True
+                self.spinning = False
+                break
+
+            time.sleep(0.1)
+
+        # Clear the spinner line and print success message
+        if self.model_loaded:
+            sys.stdout.write("\r" + " " * 80 + "\r")  # Clear line
+            sys.stdout.write("Model loaded successfully! Server is ready.\n")
+            sys.stdout.flush()
+
+    def start(self) -> None:
+        """Start the spinner in a background thread."""
+        self.thread = threading.Thread(target=self._spin, daemon=True)
+        self.thread.start()
+
+    def stop(self) -> None:
+        """Stop the spinner."""
+        self.spinning = False
+        if self.thread:
+            self.thread.join(timeout=1)
+
+
+def main() -> None:
+    """Start the Qwen TTS WebUI server."""
+    parser = argparse.ArgumentParser(description="Start the Web UI")
+    parser.add_argument("--host", default="localhost", help="Host to bind to")
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=int(os.environ.get("VOICE_CLONER_PORT", "8000")),
+        help="Port to bind to",
+    )
+    parser.add_argument(
+        "--reload",
+        action="store_true",
+        help="Enable auto-reload for development",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Number of worker processes",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default=None,
+        help="Manually set device backend to use (e.g., 'cuda:0', 'mps', 'cpu')",
+    )
+
+    args = parser.parse_args()
+
+    # Change to the project directory
+    project_dir = Path(__file__).parent
+    os.chdir(project_dir)
+
+    # Set device environment variable if specified
+    if args.device:
+        os.environ["VOICE_CLONER_DEVICE"] = args.device
+
+    logger.info("Starting Qwen TTS WebUI Server")
+    logger.info("Host: %s", args.host)
+    logger.info("Port: %s", args.port)
+    logger.info("Auto-reload: %s", args.reload)
+    logger.info("Workers: %s", args.workers)
+    logger.info("Device: %s", args.device or "auto-detect")
+    logger.info("Working directory: %s\n", project_dir)
+    logger.info("Web UI will be available at: http://localhost:%s", args.port)
+    logger.info("API Documentation: http://localhost:%s/docs\n", args.port)
+
+    # Start the loading spinner in a background thread
+    spinner = LoadingSpinner(args.port)
+    spinner.start()
+
+    # Start the server
+    try:
+        uvicorn.run(
+            "qwen_voice_cloning.server:app",
+            host=args.host,
+            port=args.port,
+            reload=args.reload,
+            workers=1 if args.reload else args.workers,
+            log_level="info",
+        )
+    finally:
+        spinner.stop()
+
+
+if __name__ == "__main__":
+    main()

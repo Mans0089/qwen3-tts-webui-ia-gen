@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Qwen3-TTS WebUI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/x-icon" href="/static/qwentts.ico">
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+    <!-- Toast notification container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <div class="theme-toggle">
+        <button onclick="toggleTheme()" id="theme-btn" title="Toggle dark mode">
+            <span id="theme-icon">&#9790;</span>
+        </button>
+    </div>
+    <div class="container">
+        <div class="header">
+            <div class="logo">
+
+                <div>
+                    <h1>Qwen TTS</h1>
+                    <p>Generate speech using AI - upload a reference audio and create new voice synthesis</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="tabs-container">
+            <div class="tabs">
+                <div class="tab active" onclick="switchTab('existing')">Use Existing Reference</div>
+                <div class="tab" onclick="switchTab('upload')">Upload New Reference</div>
+                <div class="tab" onclick="switchTab('multispeaker')">Multi-Speaker</div>
+            </div>
+        </div>
+        
+        <div class="card">
+
+            <!-- Existing Reference Tab -->
+            <div id="existing-tab" class="tab-content active">
+                <div class="form-group">
+                    <label for="reference-select">Select Reference Audio:</label>
+                    <select id="reference-select" onchange="selectReferenceFromDropdown()">
+                        <option value="">-- Choose a reference audio --</option>
+                    </select>
+                </div>
+                
+                <div class="form-group" id="reference-preview" style="display: none;">
+                    <label>Preview:</label>
+                    <audio controls class="audio-player" id="preview-audio">
+                        Your browser does not support the audio element.
+                    </audio>
+                </div>
+
+                <div class="form-group" id="reference-rename" style="display: none;">
+                    <label for="reference-name-input">Reference Name:</label>
+                    <div class="input-with-button">
+                        <input type="text" id="reference-name-input" placeholder="Enter a custom name for this reference...">
+                        <button class="btn" onclick="renameReference()">Rename</button>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="text-existing">Text to Generate:</label>
+                    <textarea id="text-existing" placeholder="Enter the text you want to generate in the cloned voice...">Hello, this is a test of the voice cloning system. How does it sound?</textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="language-existing">Language:</label>
+                    <select id="language-existing">
+                        <option value="">Loading languages...</option>
+                    </select>
+                </div>
+
+                <button class="btn" onclick="cloneWithExistingReference()">Clone Voice</button>
+            </div>
+
+            <!-- Upload Reference Tab -->
+            <div id="upload-tab" class="tab-content">
+                <div class="form-group">
+                    <label>Reference Audio Source:</label>
+                    <div class="audio-upload-tabs">
+                        <div class="tab active" onclick="switchAudioSource('file')">Upload File</div>
+                        <div class="tab" onclick="switchAudioSource('record')">Record Audio</div>
+                        <div class="tab" onclick="switchAudioSource('youtube')">YouTube</div>
+                    </div>
+                </div>
+
+                <!-- File Upload Section -->
+                <div id="file-source" class="tab-content active">
+                    <div class="form-group">
+                        <label for="reference-file">Reference Audio File:</label>
+                        <input type="file" id="reference-file" accept="audio/*" required>
+                    </div>
+                </div>
+
+                <!-- Recording Section -->
+                <div id="record-source" class="tab-content">
+                    <div class="form-group">
+                        <label>Record Reference Audio:</label>
+                        <div class="recording-area">
+                            <button id="record-btn" class="btn" onclick="toggleRecording()">Start Recording</button>
+                            <button id="stop-btn" class="btn" onclick="stopRecording()" style="display: none; margin-left: 10px;">Stop Recording</button>
+                            <p id="recording-status" style="margin-top: 15px; color: var(--accent); font-weight: 600;"></p>
+                        </div>
+                        <audio id="recorded-audio" controls class="audio-player" style="display: none;"></audio>
+                    </div>
+                </div>
+
+                <!-- YouTube Section -->
+                <div id="youtube-source" class="tab-content">
+                    <div class="form-group">
+                        <label for="youtube-url">YouTube Video URL:</label>
+                        <input type="text" id="youtube-url" placeholder="https://www.youtube.com/watch?v=...">
+                    </div>
+                    <div class="form-group">
+                        <label for="youtube-name">Reference Name (optional):</label>
+                        <input type="text" id="youtube-name" placeholder="Enter a name for this reference audio...">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="text-upload">Text to Generate:</label>
+                    <textarea id="text-upload" placeholder="Enter the text you want to generate in the cloned voice...">Hello, this is a test of the voice cloning system. How does it sound?</textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="language-upload">Language:</label>
+                    <select id="language-upload">
+                        <option value="">Loading languages...</option>
+                    </select>
+                </div>
+
+                <button class="btn" onclick="cloneWithUpload()">Upload & Clone</button>
+            </div>
+
+            <!-- Multi-Speaker Tab -->
+            <div id="multispeaker-tab" class="tab-content">
+                <div class="form-group">
+                    <p style="color: var(--text-secondary); margin-bottom: 16px;">
+                        Create a conversation or dialogue with multiple speakers. Each segment will be generated with its own reference voice and concatenated in sequence.
+                    </p>
+                </div>
+
+                <div id="speaker-segments-container">
+                    <!-- Speaker segments will be added here dynamically -->
+                </div>
+
+                <div class="form-group" style="display: flex; gap: 12px; margin-top: 16px;">
+                    <button class="btn" onclick="addSpeakerSegment()" style="background: var(--accent);">+ Add Segment</button>
+                    <button class="btn" onclick="cloneMultiSpeaker()">Generate Multi-Speaker Audio</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Progress Section -->
+        <div id="progress-section" class="card hidden">
+            <h3>Processing...</h3>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress-fill"></div>
+            </div>
+            <p id="progress-text">Initializing voice cloner...</p>
+            <p id="elapsed-time" style="font-weight: 600; color: var(--accent); margin-top: 12px;">Elapsed: 0s</p>
+            <button id="cancel-btn" class="btn" onclick="cancelGeneration()" style="background: #dc3545; margin-top: 15px;">Cancel Generation</button>
+        </div>
+
+        <!-- Result Section -->
+        <div id="result-section" class="card hidden">
+            <h3>Voice Cloning Complete!</h3>
+            <p id="result-generation-time" class="generated-audio-meta" style="margin-bottom: 16px;"></p>
+            <audio controls class="audio-player" id="result-audio">
+                Your browser does not support the audio element.
+            </audio>
+            <br><br>
+            <a href="#" id="download-link" class="btn" download>Download Audio</a>
+        </div>
+
+        <!-- Error Section -->
+        <div id="error-section" class="card error hidden">
+            <h3>Error</h3>
+            <p id="error-message"></p>
+        </div>
+
+        <!-- Generated Audios Section -->
+            <div class="card">
+                <h3>Generated Audios</h3>
+                <div id="generated-audios-list">
+                    <p>No generated audios found. Create your first voice clone!</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Links Section -->
+        <div class="card links-section">
+            <h3 style="margin-bottom: 16px;">Support & More</h3>
+            <div style="display: flex; justify-content: center; gap: 24px; flex-wrap: wrap;">
+                <a href="https://github.com/AfkaraLP/qwen3-tts-webui" target="_blank" rel="noopener noreferrer">
+                    <img src="/static/github-142-svgrepo-com.svg" alt="GitHub" width="20" height="20">
+                    View on GitHub
+                </a>
+                <a href="https://ko-fi.com/afkaralp" target="_blank" rel="noopener noreferrer">
+                    <img src="/static/kofi-svgrepo-com.svg" alt="Ko-fi" width="20" height="20">
+                    Support on Ko-fi
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript files -->
+    <script src="/static/js/theme.js"></script>
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/ui.js"></script>
+    <script src="/static/js/recording.js"></script>
+    <script src="/static/js/multispeaker.js"></script>
+    <script src="/static/js/main.js"></script>
+</body>
+</html>
